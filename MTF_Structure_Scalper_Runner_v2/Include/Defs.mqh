@@ -11,7 +11,7 @@
 #define MTSR2_DEFS_MQH
 
 #define MTSR2_VERSION      "2.0.0_CORE"
-#define MTSR2_BUILD        "phase1-structure"
+#define MTSR2_BUILD        "p2-sr-liq-bias"
 
 //--- Internal timeframe indexing (hierarchy order: HTF -> LTF) ------
 #define TF_COUNT 7

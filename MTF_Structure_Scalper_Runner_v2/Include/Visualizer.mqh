@@ -10,6 +10,7 @@
 #include "Defs.mqh"
 #include "Structs.mqh"
 #include "SwingEngine.mqh"
+#include "SRZoneEngine.mqh"
 #include "Utils.mqh"
 
 #define VIS_PREFIX "MTSR2_VIS_"
@@ -72,6 +73,32 @@ public:
         }
       if(st.protected_low>0.0)  HLine(VIS_PREFIX+"PLOW", st.protected_low, clrDodgerBlue,STYLE_DOT);
       if(st.protected_high>0.0) HLine(VIS_PREFIX+"PHIGH",st.protected_high,clrTomato,   STYLE_DOT);
+     }
+
+   void              DrawZones(CSRZoneEngine *sr,const double min_score)
+     {
+      if(sr==NULL) return;
+      DelPrefix(VIS_PREFIX+"ZN_");
+      datetime t2=TimeCurrent();
+      datetime t1=t2-(datetime)(150*PeriodSeconds((ENUM_TIMEFRAMES)Period()));
+      int drawn=0;
+      for(int i=0;i<sr.Count() && drawn<14;i++)
+        {
+         SRZone z; if(!sr.Get(i,z)) continue;
+         if(z.score<min_score) continue;
+         string nm=StringFormat("%sZN_%I64u",VIS_PREFIX,z.id);
+         if(ObjectFind(m_chart,nm)<0) ObjectCreate(m_chart,nm,OBJ_RECTANGLE,0,t1,z.upper,t2,z.lower);
+         ObjectSetInteger(m_chart,nm,OBJPROP_TIME,0,t1);
+         ObjectSetInteger(m_chart,nm,OBJPROP_TIME,1,t2);
+         ObjectSetDouble (m_chart,nm,OBJPROP_PRICE,0,z.upper);
+         ObjectSetDouble (m_chart,nm,OBJPROP_PRICE,1,z.lower);
+         color c=(z.type==ZONE_RESISTANCE?clrTomato:clrDodgerBlue);
+         ObjectSetInteger(m_chart,nm,OBJPROP_COLOR,c);
+         ObjectSetInteger(m_chart,nm,OBJPROP_FILL,true);
+         ObjectSetInteger(m_chart,nm,OBJPROP_BACK,true);
+         ObjectSetInteger(m_chart,nm,OBJPROP_SELECTABLE,false);
+         drawn++;
+        }
      }
   };
 

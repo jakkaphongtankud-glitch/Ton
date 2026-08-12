@@ -60,3 +60,4 @@ Reason          :
 | Date | Version | Change | Result summary | Decision |
 |------|---------|--------|----------------|----------|
 | 2026-08-12 | phase1-structure | Build 01–03: framework + swing + BOS/CHoCH | Visual validation pending (user) | — |
+| 2026-08-12 | p2-sr-liq-bias | Build 04–06: S/R zones + liquidity/sweep + regime + MTF bias (H2 bridge) | Visual validation pending (user) | — |

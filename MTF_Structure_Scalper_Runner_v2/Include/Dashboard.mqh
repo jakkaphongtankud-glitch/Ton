@@ -67,7 +67,10 @@ public:
 
    void              Render(const TFState &st[],const int tf_count,
                             const ENUM_SYSTEM_STATE sys,const string sym,
-                            const double spread_pts,const string build)
+                            const double spread_pts,const string build,
+                            const double bias_pct,const string bias_label,
+                            const int sr_count,const int liq_count,
+                            const ENUM_SIGNAL_SIDE sweep_side)
      {
       m_row=0;
       Row("H0",StringFormat("MTF STRUCTURE SCALPER v%s [%s]",MTSR2_VERSION,build),clrWhite);
@@ -86,7 +89,11 @@ public:
          Row(StringFormat("R%d",i),line,DirColor(st[i].structure));
         }
       Row("F0","--------------------------------------",clrDimGray);
-      Row("F1","Phase 1: STRUCTURE ONLY (no orders)",clrGold);
+      color bc=(bias_pct>0?clrLime:(bias_pct<0?clrTomato:clrSilver));
+      Row("B0",StringFormat(" BIAS   %+6.1f%%  %s",bias_pct,bias_label),bc);
+      Row("B1",StringFormat(" SR zones=%d   Liq pools=%d   LastSweep=%s",
+                            sr_count,liq_count,SideStr(sweep_side)),clrLightGray);
+      Row("F1","Phase 1-2: STRUCTURE/SR/LIQ/BIAS (no orders)",clrGold);
      }
   };
 

@@ -14,8 +14,8 @@ D1 / H4 / H2 / H1 / M15 / M5 / M1 — MetaTrader 5 / MQL5 — XAUUSDm (Exness)
 ว่าต้องสร้าง **Champion Core** ให้พิสูจน์ว่ามี edge ก่อน แล้วจึงเพิ่ม Breakout / Reversal / Recovery / Hedge
 ทีละตัว เพื่อวัดว่าแต่ละ engine เพิ่ม Expectancy จริง หรือแค่ทำให้ backtest ดูสวย
 
-**ตอนนี้เสร็จ: Phase 1 — Market Structure Only (Build 01–03)**
-EA เวอร์ชันนี้ **ยังไม่เปิดออเดอร์** — มันทำหน้าที่ตรวจจับและวาดโครงสร้างตลาดให้เรา
+**ตอนนี้เสร็จ: Phase 1–2 — Context Detection (Build 01–06)**
+EA เวอร์ชันนี้ **ยังไม่เปิดออเดอร์** — มันตรวจจับและวาด โครงสร้าง + S/R + Liquidity + Bias ให้เรา
 ตรวจสอบด้วยตาก่อนว่า detect ถูกต้อง (ตรงตาม SPEC §60–62 และ Definition-of-Done ข้อ 1–8)
 
 | Build | โมดูล | สถานะ |
@@ -23,9 +23,9 @@ EA เวอร์ชันนี้ **ยังไม่เปิดออเ�
 | 01 | Framework + Config + Multi-TF Cache + Logger + State Machine | ✅ |
 | 02 | Swing Engine (fractal L/R, no repaint) | ✅ |
 | 03 | Structure Engine — BOS / CHoCH / HH-HL-LH-LL / Protected Swing | ✅ |
-| 04 | S/R Zone Engine (cluster + score) | ⬜ |
-| 05 | Liquidity Engine (equal H/L, sweep) | ⬜ |
-| 06 | Regime + MTF Bias (weighted hierarchy, H2 bridge) | ⬜ |
+| 04 | S/R Zone Engine (cluster + merge + score) | ✅ |
+| 05 | Liquidity Engine (equal H/L, pools, sweep) | ✅ |
+| 06 | Regime + MTF Bias (weighted hierarchy, **H2 bridge**) | ✅ |
 | 07–09 | M15 Setup → M5 Confirm → M1 Trigger | ⬜ |
 | 10 | Central Score + Conflict Resolver | ⬜ |
 | 11–13 | Stop / Target / RR → Risk Sizing → Execution | ⬜ |
@@ -50,7 +50,11 @@ MTF_Structure_Scalper_Runner_v2/
     ├── MarketData.mqh      multi-TF bar cache + ATR หลาย TF (§5–7, §81–82)
     ├── SwingEngine.mqh     fractal swing detection (§8–9)
     ├── StructureEngine.mqh BOS / CHoCH engine (§10–19)
-    ├── Visualizer.mqh      debug objects สำหรับ visual validation (§128)
+    ├── SRZoneEngine.mqh    dynamic S/R zones: cluster + merge + score (§20–25)
+    ├── LiquidityEngine.mqh liquidity pools + sweep detection (§26–31)
+    ├── RegimeEngine.mqh    per-TF market regime (§32–33)
+    ├── MTFBiasEngine.mqh   weighted MTF bias + H2 bridge (§34–36)
+    ├── Visualizer.mqh      debug objects + S/R zones (§128)
     └── Dashboard.mqh       on-chart status panel (§59, §101)
 ```
 
@@ -62,13 +66,14 @@ MTF_Structure_Scalper_Runner_v2/
    - **เป้าหมาย: 0 errors / 0 warnings** (Definition-of-Done ข้อ 1)
 4. ลาก EA ลงชาร์ต **XAUUSDm** (แนะนำเปิดที่ M15 เพื่อดู visual)
 
-## ✅ วิธีวัดผล Phase 1 (สำคัญ — ต้องผ่านก่อนไป Build 04)
+## ✅ วิธีวัดผล Phase 1–2 (สำคัญ — ต้องผ่านก่อนไป Build 07)
 
-Phase 1 พิสูจน์ว่า **detect โครงสร้างถูกต้อง ไม่ repaint** เปิด **Strategy Tester → Visual Mode**
+Phase 1–2 พิสูจน์ว่า **detect context ถูกต้อง ไม่ repaint** เปิด **Strategy Tester → Visual Mode**
 (หรือรันสด demo) ตั้งค่า input:
 
-- `InpDebugStructure = true` → วาดลูกศร swing + เส้น protected high/low บน TF ของชาร์ต
+- `InpDebugStructure = true` → วาดลูกศร swing + เส้น protected high/low + **กล่อง S/R zone** บน TF ของชาร์ต
 - `InpVerboseLog = true` → log ทุก BOS/CHoCH ใน Experts tab
+- ดู **Dashboard** มุมซ้ายบน: ตาราง MTF (struct/regime/event/ATR ทุก TF) + **BIAS % + label (เช่น HTF_PULLBACK_BULL)** + จำนวน SR zones / Liquidity pools / Last sweep
 
 **เช็คลิสต์ (อ้างอิง Test Matrix §108–110):**
 
@@ -114,8 +119,14 @@ Phase 1 พิสูจน์ว่า **detect โครงสร้างถ�
 
 ## 📌 ขั้นต่อไป
 
-ผมจะทำ **Build 04 (S/R Zone Engine)** และ **Build 05 (Liquidity)** เป็นชุดถัดไป — ทั้งคู่ยังเป็น
-เฟส "validation มากกว่า profit" (§62) แล้วจึงเข้า Build 06 (Regime + MTF Bias + H2 Bridge)
-ซึ่งเป็นหัวใจที่ต้องพิสูจน์ว่า **H2 เพิ่ม edge จริงไหม**
+ชุดถัดไปคือจุดที่ EA **เริ่มมีสิทธิ์เข้าออเดอร์** — ต้องทำอย่างระวัง:
+- **Build 07–09**: M15 Setup (Pullback + Liquidity Reversal) → M5 Confirmation (CHoCH/BOS) → M1 Trigger
+- **Build 10**: Central Signal Score + Conflict Resolver (§44–46) — ทุก candidate ผ่านตัวนี้ตัวเดียว
+- **Build 11–13**: Structural SL / HTF Targets / RR → Position Sizing → Execution (retcode handling)
+- **Build 14–16**: Position State Machine → Partial + Runner (structure trailing) → HTF Exit
+- **Build 17–18**: Telemetry (CSV) + Dashboard เต็ม → **Core Backtest (v2.0.0_CORE)**
+
+จุดที่ต้องพิสูจน์เป็นอันดับแรกหลัง Core: **H2 Bridge + H2 Runner เพิ่ม Expectancy จริงไหม**
+ถ้าไม่เพิ่ม → เอาออก ไม่ใช่เพิ่ม complexity เปล่า ๆ (§54)
 
 การวัดผลแต่ละ build บันทึกใน `docs/BUILD_LOG.md` (Experiment Manifest ตาม §139)

@@ -3,14 +3,17 @@
 //|   Adaptive Multi-Timeframe Structure Scalper & Runner            |
 //|   D1 / H4 / H2 / H1 / M15 / M5 / M1                              |
 //|                                                                  |
-//|   BUILD STATUS: Phase 1  (Build 01-03)                          |
+//|   BUILD STATUS: Phase 1-2  (Build 01-06)                        |
 //|     [x] Framework + config + multi-TF cache      (Build 01)     |
 //|     [x] Swing engine (fractal, no repaint)       (Build 02)     |
 //|     [x] Structure engine BOS / CHoCH             (Build 03)     |
-//|     [ ] S/R + Liquidity ... Runner ... (later builds)           |
+//|     [x] S/R zone engine (cluster + score)        (Build 04)     |
+//|     [x] Liquidity engine (equal H/L + sweep)     (Build 05)     |
+//|     [x] Regime + MTF bias (weighted + H2 bridge) (Build 06)     |
+//|     [ ] Setup/Score/Risk/Exec/Runner/Exit ... (later builds)    |
 //|                                                                  |
-//|   Phase 1 does NOT place orders. It detects and visualises       |
-//|   market structure so detection can be validated first           |
+//|   Builds 01-06 do NOT place orders. They detect and visualise    |
+//|   context so detection can be validated first                    |
 //|   (SPEC v2.0 sections 60-62, Definition-of-Done items 1-8).      |
 //+------------------------------------------------------------------+
 #property copyright "MTF Structure Scalper & Runner v2"
@@ -25,6 +28,10 @@
 #include "Include/MarketData.mqh"
 #include "Include/SwingEngine.mqh"
 #include "Include/StructureEngine.mqh"
+#include "Include/SRZoneEngine.mqh"
+#include "Include/LiquidityEngine.mqh"
+#include "Include/RegimeEngine.mqh"
+#include "Include/MTFBiasEngine.mqh"
 #include "Include/Visualizer.mqh"
 #include "Include/Dashboard.mqh"
 
@@ -33,14 +40,20 @@ CLogger          g_log;
 CMarketData      g_data;
 CSwingEngine     g_swing;
 CStructureEngine g_struct;
+CSRZoneEngine    g_sr;
+CLiquidityEngine g_liq;
+CRegimeEngine    g_regime;
+CMTFBiasEngine   g_bias;
 CVisualizer      g_vis;
 CDashboard       g_dash;
 
 TFState          g_tf[TF_COUNT];
+BiasContext      g_bias_ctx;
 ENUM_SYSTEM_STATE g_sys      = SYS_IDLE;
 string           g_symbol    = "";
 double           g_point     = 0.0;
 int              g_chart_tf_index = -1;   // which TF the debug visuals track
+bool             g_ctx_init  = false;     // first S/R + liquidity build done
 
 //+------------------------------------------------------------------+
 //| Config validation - HARD SAFETY INVARIANTS (SPEC sec 140)        |
@@ -141,6 +154,7 @@ void ProcessTF(const int idx)
    g_swing.Update(idx);
    g_swing.FillState(idx,g_tf[idx]);
    g_struct.Update(idx,g_tf[idx]);
+   g_regime.Update(idx,g_tf[idx]);
    g_tf[idx].atr=g_data.ATR(idx);
    g_tf[idx].atr_ratio=g_data.ATRRatio(idx);
    g_tf[idx].last_bar_time=g_data.Time(idx,0);
@@ -172,6 +186,11 @@ int OnInit()
 
    g_swing.Init(GetPointer(g_data),GetPointer(g_log),InpMaxSwingHistory);
    g_struct.Init(GetPointer(g_data),GetPointer(g_swing),GetPointer(g_log),g_symbol);
+   g_sr.Init(GetPointer(g_data),GetPointer(g_swing),g_symbol);
+   g_liq.Init(GetPointer(g_data),GetPointer(g_swing),g_symbol);
+   g_regime.Init(GetPointer(g_data));
+   g_bias.Init(GetPointer(g_data));
+   g_bias_ctx.Reset();
 
    ResolveChartTF();
    g_vis.Init(ChartID(),40);
@@ -186,7 +205,7 @@ int OnInit()
               g_symbol,g_point,
               (g_chart_tf_index>=0?TFIndexToName(g_chart_tf_index):"none"),
               (InpEnableTrading?"ON(deferred)":"OFF")));
-   g_log.Warn("Phase-1 build: structure detection only, NO orders are placed.");
+   g_log.Warn("Builds 01-06: context detection only (structure/SR/liquidity/bias), NO orders placed.");
    return INIT_SUCCEEDED;
   }
 
@@ -209,6 +228,8 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
   {
+   bool tf_new[TF_COUNT];
+   for(int i=0;i<TF_COUNT;i++) tf_new[i]=false;
    bool chart_tf_updated=false;
 
    for(int i=0;i<TF_COUNT;i++)
@@ -217,20 +238,41 @@ void OnTick()
       if(g_data.IsNewBar(i))
         {
          ProcessTF(i);
+         tf_new[i]=true;
          if(i==g_chart_tf_index) chart_tf_updated=true;
         }
      }
 
    g_data.EvaluateReady(InpMinBarsReady);
 
-   if(g_data.AllReady() && g_sys==SYS_SCAN_HTF)
-      g_sys=SYS_BUILD_BIAS;   // structure ready; higher pipeline plugs in here (later builds)
+   if(g_data.AllReady())
+     {
+      if(g_sys==SYS_SCAN_HTF) g_sys=SYS_BUILD_BIAS;
 
-   //--- Phase 1: no trading pipeline yet. Just visualise. -----------
+      //--- rebuild S/R + liquidity pools when an HTF advanced --------
+      bool htf_new=(tf_new[IDX_D1]||tf_new[IDX_H4]||tf_new[IDX_H2]||
+                    tf_new[IDX_H1]||tf_new[IDX_M15]);
+      if(htf_new || !g_ctx_init)
+        {
+         g_sr.Rebuild();
+         g_liq.RebuildPools();
+         g_ctx_init=true;
+        }
+      //--- sweep detection on the lower timeframes -------------------
+      if(tf_new[IDX_M15]) g_liq.DetectSweeps(IDX_M15);
+      if(tf_new[IDX_M5])  g_liq.DetectSweeps(IDX_M5);
+      if(tf_new[IDX_M1])  g_liq.DetectSweeps(IDX_M1);
+
+      //--- weighted MTF bias (+ H2 bridge) --------------------------
+      g_bias.Build(g_tf,g_bias_ctx);
+     }
+
+   //--- Phase 1-2: no trading pipeline yet. Visualise only. ---------
    if(InpDebugStructure && chart_tf_updated && g_chart_tf_index>=0)
      {
       CSwingSeries *ser=g_swing.Series(g_chart_tf_index);
       g_vis.DrawTF(ser,g_tf[g_chart_tf_index]);
+      g_vis.DrawZones(GetPointer(g_sr),InpSRStrongScore);
      }
   }
 
@@ -241,7 +283,9 @@ void OnTimer()
   {
    if(!InpEnableDashboard) return;
    double spread_pts=(double)SymbolInfoInteger(g_symbol,SYMBOL_SPREAD);
-   g_dash.Render(g_tf,TF_COUNT,g_sys,g_symbol,spread_pts,MTSR2_BUILD);
+   g_dash.Render(g_tf,TF_COUNT,g_sys,g_symbol,spread_pts,MTSR2_BUILD,
+                 g_bias_ctx.bias_pct,g_bias_ctx.label,
+                 g_sr.Count(),g_liq.Count(),g_liq.LastSweepSide());
   }
 
 //+------------------------------------------------------------------+
