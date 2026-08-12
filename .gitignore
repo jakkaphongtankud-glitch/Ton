@@ -1,0 +1,17 @@
+# MetaTrader 5 build artifacts
+*.ex5
+*.ex4
+
+# Compiled/log/journal outputs
+*.log
+*.csv.bak
+
+# Tester caches
+tester/
+*.opt
+*.set.bak
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
